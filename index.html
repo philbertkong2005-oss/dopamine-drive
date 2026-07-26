@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dopamine Drive — Build Your Dream Garage</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<canvas id="confetti"></canvas>
+
+<header class="topbar">
+  <div class="logo" data-view="showroom" role="button">
+    <span class="logo-bolt">⚡</span> DOPAMINE <span class="logo-accent">DRIVE</span>
+  </div>
+  <nav class="nav">
+    <button class="nav-btn active" data-view="showroom">Showroom</button>
+    <button class="nav-btn" data-view="barn">Barn Find <span class="barn-dot" id="barn-dot"></span></button>
+    <button class="nav-btn" data-view="compare">Compare</button>
+    <button class="nav-btn" data-view="garage">My Garage <span class="pill" id="garage-count">0</span></button>
+  </nav>
+  <div class="topbar-right">
+    <button class="mute-btn" id="mute-btn" title="Toggle sound">🔊</button>
+    <span class="currency-badge">CAD $</span>
+  </div>
+</header>
+
+<main id="main"></main>
+
+<footer class="footer">
+  Prices are approximate Canadian MSRPs for demo purposes. Not affiliated with any manufacturer. Everything is free — you're dreaming.
+</footer>
+
+<div class="modal-backdrop" id="modal-backdrop">
+  <div class="modal" id="modal"></div>
+</div>
+
+<script src="data.js"></script>
+<script src="art.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
