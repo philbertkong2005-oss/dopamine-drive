@@ -11,6 +11,12 @@ It's plain static files — no build step, no dependencies.
 - **Over http** (needed by some tooling): `powershell -ExecutionPolicy Bypass -File serve.ps1`,
   then open <http://localhost:4174/>. Works without Node or Python installed.
 
+To produce a single self-contained HTML file (everything inlined, hostable anywhere):
+
+    powershell -ExecutionPolicy Bypass -File build-single-file.ps1
+
+Output lands in `dist/dopamine-drive.html`. `dist/` is gitignored — rebuild rather than commit it.
+
 ## Locked design principles
 
 1. **Abundance with zero friction.** Every car, trim, and dealer option is instantly free.

@@ -2,3 +2,6 @@
 Thumbs.db
 node_modules/
 *.log
+
+# Build output — regenerate with build-single-file.ps1
+dist/

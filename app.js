@@ -15,13 +15,19 @@ const state = {
   lastTotal: 0,
 };
 
+// localStorage isn't always available (private browsing, sandboxed frames).
+// Fall back to memory so the session still works, it just won't persist.
+const mem = {};
+const safeGet = k => { try { return localStorage.getItem(k); } catch { return mem[k] ?? null; } };
+const safeSet = (k, v) => { mem[k] = v; try { localStorage.setItem(k, v); } catch { /* memory only */ } };
+
 const store = {
-  get garage() { try { return JSON.parse(localStorage.getItem('dd_garage') || '[]'); } catch { return []; } },
-  set garage(v) { localStorage.setItem('dd_garage', JSON.stringify(v)); },
-  get claims() { try { return JSON.parse(localStorage.getItem('dd_claims') || '{}'); } catch { return {}; } },
-  set claims(v) { localStorage.setItem('dd_claims', JSON.stringify(v)); },
-  get muted() { return localStorage.getItem('dd_mute') === '1'; },
-  set muted(v) { localStorage.setItem('dd_mute', v ? '1' : '0'); },
+  get garage() { try { return JSON.parse(safeGet('dd_garage') || '[]'); } catch { return []; } },
+  set garage(v) { safeSet('dd_garage', JSON.stringify(v)); },
+  get claims() { try { return JSON.parse(safeGet('dd_claims') || '{}'); } catch { return {}; } },
+  set claims(v) { safeSet('dd_claims', JSON.stringify(v)); },
+  get muted() { return safeGet('dd_mute') === '1'; },
+  set muted(v) { safeSet('dd_mute', v ? '1' : '0'); },
 };
 
 // ---------- sound (tiny WebAudio synth) ----------
