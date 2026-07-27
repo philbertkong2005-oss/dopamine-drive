@@ -14,7 +14,8 @@ Small, unglamorous, and much cheaper to do now than later.
       already use. **Blocking: do this before the v2 data expansion.**
 - [ ] **Schema version + migration.** Add `dd_version` to localStorage so future shape
       changes can migrate old garages instead of corrupting them.
-- [ ] **Verify the midnight barn-find rollover** in the wild (new car, claimable again).
+- [x] ~~Verify the midnight barn-find rollover~~ — confirmed 2026-07-26: the pick changed
+      across midnight mid-session (Countach → McLaren F1) and became claimable again.
 - [ ] **Price/trim audit.** Current CAD MSRPs are hand-curated approximations; spot-check
       against real dealer build-and-price pages.
 - [ ] Mobile pass on the builder (it stacks to one column; confirm it feels right).
