@@ -163,7 +163,6 @@ main { max-width: 1200px; margin: 0 auto; padding: 28px 24px 80px; }
   box-shadow: var(--shadow); border-color: #3a4152;
 }
 .car-card:hover .car-art { transform: translateX(6px); }
-.car-art { width: 100%; height: auto; transition: transform 0.4s var(--spring); }
 
 .car-card .brand { color: var(--muted); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; }
 .car-card .model { font-size: 20px; font-weight: 800; margin: 2px 0 8px; }
@@ -189,9 +188,30 @@ main { max-width: 1200px; margin: 0 auto; padding: 28px 24px 80px; }
   border: 1px solid var(--line); border-radius: var(--radius);
   padding: 30px 24px 18px; text-align: center;
 }
-.stage .car-art { max-width: 520px; filter: drop-shadow(0 18px 24px rgba(0,0,0,0.4)); }
-.stage-swap { animation: swap 0.45s var(--spring); }
-@keyframes swap { 0% { transform: scale(0.92); opacity: 0.4; } 100% { transform: scale(1); opacity: 1; } }
+.stage-canvas { position: relative; width: 100%; height: 300px; }
+.stage-canvas canvas {
+  width: 100%; height: 100%; display: block;
+  cursor: grab; touch-action: none;   /* never hijack vertical page scroll */
+}
+.stage-canvas canvas.dragging { cursor: grabbing; }
+.rotate-hint {
+  position: absolute; bottom: 4px; left: 50%; transform: translateX(-50%);
+  font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase;
+  color: var(--muted); opacity: 0.65; pointer-events: none;
+  transition: opacity 0.3s;
+}
+.stage-canvas canvas.dragging + .rotate-hint { opacity: 0; }
+@media (max-width: 900px) { .stage-canvas { height: 240px; } }
+
+/* Cached projections. Placeholders fade out as the real render lands. */
+.car-art {
+  width: 100%; height: auto; display: block;
+  transition: opacity 0.25s, transform 0.4s var(--spring);
+}
+.car-art-ph { opacity: 0.45; }
+@media (prefers-reduced-motion: reduce) {
+  .car-art { transition: none; }
+}
 
 .stage .car-title { font-size: 22px; font-weight: 900; margin-top: 6px; }
 .stage .car-sub { color: var(--muted); font-size: 13px; margin-bottom: 12px; }

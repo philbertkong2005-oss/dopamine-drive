@@ -15,7 +15,7 @@ $css  = Get-Content (Join-Path $root 'styles.css') -Raw -Encoding UTF8
 $body = [regex]::Match($html, '(?s)<body[^>]*>(.*?)</body>').Groups[1].Value
 $body = [regex]::Replace($body, '(?s)<script\s+src=[^>]*>\s*</script>\s*', '')
 
-$js = @('data.js', 'art.js', 'app.js') |
+$js = @('data.js', 'mesh.js', 'render3d.js', 'projection.js', 'app.js') |
       ForEach-Object { "// ---- $_ ----`n" + (Get-Content (Join-Path $root $_) -Raw -Encoding UTF8) }
 
 # The dark neon ground is the identity here, so the page commits to one theme

@@ -140,6 +140,106 @@ const Confetti = (() => {
   return { burst };
 })();
 
+// ---------- builder stage (live, rotatable) ----------
+// A persistent canvas that owns its own rotation state. The options panel
+// re-renders on every click; this must not, or the drag would be reset
+// and pointer capture lost each time a colour is picked.
+class Stage3D {
+  constructor(canvas) {
+    this.cv = canvas;
+    this.ctx = canvas.getContext('2d');
+    this.yaw = -0.62;
+    this.pitch = 0.20;
+    this.vel = 0;
+    this.mesh = null;
+    this.paint = '#c8102e';
+    this.rim = '#9aa1a9';
+    this.raf = null;
+    this.reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    this.onResize = () => { this.resize(); this.render(); };
+    addEventListener('resize', this.onResize);
+    this.bind();
+    this.resize();
+  }
+
+  resize() {
+    const d = Math.min(2, devicePixelRatio || 1);
+    const w = this.cv.clientWidth || 480;
+    const h = this.cv.clientHeight || 280;
+    this.cv.width = Math.round(w * d);
+    this.cv.height = Math.round(h * d);
+    this.ctx.setTransform(d, 0, 0, d, 0, 0);
+    this.w = w; this.h = h;
+  }
+
+  bind() {
+    let last = 0, lastT = 0;
+    const down = e => {
+      this.dragging = true;
+      this.vel = 0;
+      cancelAnimationFrame(this.raf);
+      last = e.clientX; lastT = e.timeStamp;
+      this.cv.setPointerCapture(e.pointerId);
+      this.cv.classList.add('dragging');
+    };
+    const move = e => {
+      if (!this.dragging) return;
+      const dx = e.clientX - last;
+      const dt = Math.max(1, e.timeStamp - lastT);
+      last = e.clientX; lastT = e.timeStamp;
+      this.yaw += dx * 0.011;
+      this.vel = (dx * 0.011) / dt * 16;
+      this.render();
+    };
+    const up = e => {
+      if (!this.dragging) return;
+      this.dragging = false;
+      this.cv.classList.remove('dragging');
+      try { this.cv.releasePointerCapture(e.pointerId); } catch { /* already gone */ }
+      if (!this.reduced && Math.abs(this.vel) > 0.004) this.coast();
+    };
+    this.cv.addEventListener('pointerdown', down);
+    this.cv.addEventListener('pointermove', move);
+    this.cv.addEventListener('pointerup', up);
+    this.cv.addEventListener('pointercancel', up);
+    this.handlers = { down, move, up };
+  }
+
+  coast() {
+    const tick = () => {
+      this.yaw += this.vel;
+      this.vel *= 0.94;
+      this.render();
+      if (Math.abs(this.vel) > 0.0008) this.raf = requestAnimationFrame(tick);
+    };
+    this.raf = requestAnimationFrame(tick);
+  }
+
+  update(spec) {
+    this.mesh = Projection.meshFor(spec);
+    this.paint = spec.paint;
+    this.rim = spec.rim;
+    this.render();
+  }
+
+  render() {
+    if (!this.mesh) return;
+    this.ctx.clearRect(0, 0, this.w, this.h);
+    Render3D.draw(this.ctx, this.mesh, {
+      w: this.w, h: this.h, paint: this.paint, rim: this.rim,
+      yaw: this.yaw, pitch: this.pitch,
+    });
+  }
+
+  dispose() {
+    cancelAnimationFrame(this.raf);
+    removeEventListener('resize', this.onResize);
+  }
+}
+
+let stage = null;
+function disposeStage() { if (stage) { stage.dispose(); stage = null; } }
+
 // ---------- helpers ----------
 const carById = id => CARS.find(c => c.id === id);
 const minPrice = car => Math.min(...car.trims.map(t => t.price));
@@ -155,15 +255,49 @@ function buildTotal(b) {
   return total;
 }
 
-function artFor(car, b) {
-  return Art.car({
-    body: car.art.body,
-    len: car.art.len,
-    wing: car.art.wing,
-    paint: b ? pick(car.colors, b.color).hex : car.colors[0].hex,
-    wheelStyle: b ? pick(car.wheels, b.wheel).style : car.wheels[0].style,
-  });
+// Everything that changes how a vehicle looks, collapsed into one spec.
+// `sig` is the cache key: miss anything visual here and a card silently
+// shows a stale car, so packages declare their visual effect in data.js
+// rather than being special-cased.
+function visualOf(car, b) {
+  const r = car.render;
+  const color = b ? pick(car.colors, b.color) : car.colors[0];
+  const wheel = b ? pick(car.wheels, b.wheel) : car.wheels[0];
+
+  let wing = r.wing, lift = 0;
+  const visualPkgs = [];
+  if (b && b.packages) {
+    for (const id of [...b.packages].sort()) {
+      const p = car.packages.find(x => x.id === id);
+      if (!p || !p.visual) continue;
+      visualPkgs.push(id);
+      if (p.visual.wing) wing = p.visual.wing;
+      if (p.visual.lift) lift += p.visual.lift;
+      if (p.visual.drop) lift -= p.visual.drop;
+    }
+  }
+
+  return {
+    id: car.id,
+    render: { family: r.family, dims: r.dims, shape: r.shape, wing, lift },
+    paint: color.hex,
+    rim: Render3D.rimFor(wheel.style),
+    sig: [car.id, color.id, wheel.id, visualPkgs.join('+'), wing || '', lift.toFixed(3)].join('|'),
+  };
 }
+
+function visualOfBarn(bf) {
+  return {
+    id: bf.id,
+    render: { ...bf.render, lift: 0 },
+    paint: bf.paint,
+    rim: Render3D.rimFor('five'),
+    sig: 'barn|' + bf.id,
+  };
+}
+
+const artFor = (car, b, size = 'card') => Projection.tag(visualOf(car, b), size);
+const artForBarn = (bf, size = 'card') => Projection.tag(visualOfBarn(bf), size);
 
 // today's barn find — deterministic by date
 function todayKey() {
@@ -193,6 +327,7 @@ function animateTicker(el, from, to) {
 const main = $('#main');
 
 function go(view) {
+  disposeStage();          // leaving the builder tears down its canvas
   state.view = view;
   $$('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === view));
   Sound.whoosh();
@@ -236,6 +371,7 @@ function renderShowroom() {
   $$('.chip[data-body]').forEach(ch => ch.onclick = () => { Sound.click(); state.filters.body = ch.dataset.body; renderShowroom(); });
   $$('.chip[data-price]').forEach(ch => ch.onclick = () => { Sound.click(); state.filters.price = ch.dataset.price; renderShowroom(); });
   $$('.car-card').forEach(card => card.onclick = () => startBuild(card.dataset.car));
+  Projection.hydrate(main);
 }
 
 // --- builder ---
@@ -250,34 +386,66 @@ function startBuild(carId) {
   state.lastTotal = buildTotal(state.build);
   state.view = 'build';
   $$('.nav-btn').forEach(b => b.classList.remove('active'));
-  renderBuild();
+  mountBuilder();
   scrollTo({ top: 0, behavior: 'instant' });
 }
 
-function renderBuild() {
+// Builds the builder DOM once. The stage inside it is never re-created,
+// only updated, so rotation and pointer capture survive option changes.
+function mountBuilder() {
+  disposeStage();
+  main.innerHTML = `
+  <div class="view builder">
+    <div class="stage">
+      <div class="stage-canvas">
+        <canvas id="stage-cv"></canvas>
+        <div class="rotate-hint">drag to rotate</div>
+      </div>
+      <div class="car-title" id="st-title"></div>
+      <div class="car-sub" id="st-sub"></div>
+      <div class="ticker-label">Your price</div>
+      <div class="ticker" id="ticker"></div>
+      <div class="spec-strip" id="st-specs"></div>
+    </div>
+    <div class="opts" id="opts"></div>
+  </div>`;
+  stage = new Stage3D($('#stage-cv'));
+  refreshBuilder(true);
+}
+
+// Re-renders only the text and the options panel, then pushes the new
+// look into the existing stage.
+function refreshBuilder(initial) {
   const b = state.build;
   const car = carById(b.carId);
   const trim = car.trims.find(t => t.id === b.trim) || car.trims[0];
   const color = pick(car.colors, b.color);
-  const wheel = pick(car.wheels, b.wheel);
   const total = buildTotal(b);
 
-  main.innerHTML = `
-  <div class="view builder">
-    <div class="stage">
-      <div id="stage-art" class="stage-swap">${artFor(car, b)}</div>
-      <div class="car-title">${car.year} ${car.brand} ${car.model}</div>
-      <div class="car-sub">${trim.name} · ${color.name}</div>
-      <div class="ticker-label">Your price</div>
-      <div class="ticker" id="ticker">${fmt(total)}</div>
-      <div class="spec-strip">
-        <div class="spec"><b>${trim.hp}</b><span>hp</span></div>
-        <div class="spec"><b>${trim.zero}s</b><span>0–100</span></div>
-        <div class="spec"><b>${trim.dt}</b><span>drive</span></div>
-        <div class="spec"><b>${trim.seats}</b><span>seats</span></div>
-      </div>
-    </div>
-    <div class="opts">
+  stage.update(visualOf(car, b));
+
+  $('#st-title').textContent = `${car.year} ${car.brand} ${car.model}`;
+  $('#st-sub').textContent = `${trim.name} · ${color.name}`;
+  $('#st-specs').innerHTML = `
+    <div class="spec"><b>${trim.hp}</b><span>hp</span></div>
+    <div class="spec"><b>${trim.zero}s</b><span>0–100</span></div>
+    <div class="spec"><b>${trim.dt}</b><span>drive</span></div>
+    <div class="spec"><b>${trim.seats}</b><span>seats</span></div>`;
+
+  const ticker = $('#ticker');
+  if (initial) ticker.textContent = fmt(total);
+  else animateTicker(ticker, state.lastTotal, total);
+  state.lastTotal = total;
+
+  renderOptions();
+}
+
+function renderOptions() {
+  const b = state.build;
+  const car = carById(b.carId);
+  const color = pick(car.colors, b.color);
+
+  $('#opts').innerHTML = `
       <div class="opt-section">
         <div class="opt-title"><span class="step-num">1</span>Trim</div>
         ${car.trims.map(t => `
@@ -318,29 +486,17 @@ function renderBuild() {
       <div class="finish-bar">
         <button class="btn btn-ghost" id="back-btn">← Showroom</button>
         <button class="btn btn-hot" id="finish-btn">Finish build 🎉</button>
-      </div>
-    </div>
-  </div>`;
+      </div>`;
 
-  const rerender = (soundFn) => {
-    const newTotal = buildTotal(state.build);
-    soundFn();
-    renderBuild();
-    const t = $('#ticker');
-    animateTicker(t, state.lastTotal, newTotal);
-    state.lastTotal = newTotal;
-    $('#stage-art').classList.remove('stage-swap');
-    void $('#stage-art').offsetWidth;
-    $('#stage-art').classList.add('stage-swap');
-  };
+  const change = soundFn => { soundFn(); refreshBuilder(false); };
 
-  $$('.trim-card').forEach(el => el.onclick = () => { b.trim = el.dataset.trim; rerender(Sound.select); });
-  $$('.swatch').forEach(el => el.onclick = () => { b.color = el.dataset.color; rerender(Sound.paint); });
-  $$('.wheel-opt').forEach(el => el.onclick = () => { b.wheel = el.dataset.wheel; rerender(Sound.select); });
+  $$('.trim-card').forEach(el => el.onclick = () => { b.trim = el.dataset.trim; change(Sound.select); });
+  $$('.swatch').forEach(el => el.onclick = () => { b.color = el.dataset.color; change(Sound.paint); });
+  $$('.wheel-opt').forEach(el => el.onclick = () => { b.wheel = el.dataset.wheel; change(Sound.select); });
   $$('.pkg').forEach(el => el.onclick = () => {
     const id = el.dataset.pkg;
     b.packages.has(id) ? b.packages.delete(id) : b.packages.add(id);
-    rerender(Sound.select);
+    change(Sound.select);
   });
   $('#back-btn').onclick = () => go('showroom');
   $('#finish-btn').onclick = finishBuild;
@@ -407,7 +563,7 @@ function renderGarage() {
             return `
             <div class="build-card">
               <div class="badge-barn">Barn find</div>
-              ${Art.car({ ...bf.art, paint: bf.paint })}
+              ${artForBarn(bf)}
               <div class="b-title">${bf.name}</div>
               <div class="b-sub">Claimed ${g.when}</div>
               <div class="b-price">est. ${fmt(bf.value)}</div>
@@ -446,7 +602,8 @@ function renderGarage() {
     state.lastTotal = buildTotal(state.build);
     Sound.select();
     state.view = 'build';
-    renderBuild();
+    $$('.nav-btn').forEach(x => x.classList.remove('active'));
+    mountBuilder();
     scrollTo({ top: 0, behavior: 'instant' });
   });
   $$('[data-compare]').forEach(el => el.onclick = () => {
@@ -454,6 +611,7 @@ function renderGarage() {
     Sound.select();
     go('compare');
   });
+  Projection.hydrate(main);
 }
 
 // --- compare ---
@@ -550,6 +708,7 @@ function renderCompare() {
     }
     renderCompare();
   });
+  Projection.hydrate(main);
 }
 
 // --- barn find ---
@@ -569,7 +728,7 @@ function renderBarn() {
         <div class="tarp-emoji">🛖</div>
         <div class="tarp-hint">Something's under the tarp… tap to reveal</div>
       </div>
-      ${Art.car({ ...bf.art, paint: bf.paint })}
+      ${artForBarn(bf, 'hero')}
       <div class="barn-name">${bf.name}</div>
       <div class="barn-value">estimated value ${fmt(bf.value)}</div>
       <div class="barn-story">${bf.story}</div>
@@ -614,12 +773,14 @@ function renderBarn() {
     setTimeout(tickCd, 1000);
   }
   tickCd();
+  Projection.hydrate(main);
 }
 
 // ---------- modal ----------
 function showModal(html) {
   $('#modal').innerHTML = html;
   $('#modal-backdrop').classList.add('show');
+  Projection.hydrate($('#modal'));
 }
 function hideModal() { $('#modal-backdrop').classList.remove('show'); }
 $('#modal-backdrop').addEventListener('click', e => { if (e.target === e.currentTarget) hideModal(); });

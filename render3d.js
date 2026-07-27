@@ -155,7 +155,11 @@ const Render3D = (() => {
       }
       if (!faces.length) return;
       faces.sort((a, b) => b.depth - a.depth);
-      drawables.push({ depth: objCentre[2], faces });
+      // Bodywork takes a paint-derived outline so the car reads as one
+      // object; wheels take a neutral dark one, since a green tyre outline
+      // on a green car looks like a bug rather than a style.
+      const isWheel = obj.name.startsWith('wheel');
+      drawables.push({ depth: objCentre[2], faces, outline: isWheel ? '#0b0c0e' : outline });
     });
 
     drawables.sort((a, b) => b.depth - a.depth);
@@ -164,7 +168,7 @@ const Render3D = (() => {
     for (const obj of drawables) {
       // Outline pass: fattened dark strokes, overdrawn by the fills below,
       // so only the object's silhouette survives.
-      ctx.strokeStyle = outline;
+      ctx.strokeStyle = obj.outline;
       ctx.lineWidth = ow;
       ctx.lineJoin = 'round';
       ctx.lineCap = 'round';

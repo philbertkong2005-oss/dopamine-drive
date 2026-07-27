@@ -651,10 +651,6 @@ const BARNFINDS = [
   },
 ];
 
-// Fixed epoch for daily scheduling. Day-index from here selects the
-// barn find, so appending entries never changes an earlier date's pick.
-const DAILY_EPOCH = '2026-01-01';
-
 // Price-range buckets for the showroom filter
 const PRICE_BUCKETS = [
   { id: 'all', label: 'Any price' },
