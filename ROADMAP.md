@@ -33,7 +33,29 @@ Small, unglamorous, and much cheaper to do now than later.
 
 ---
 
-## v2 — discovery & rotation
+## v2a — art pipeline ✅ shipped
+
+Cars are generated as low-poly 3D meshes from real published dimensions, rendered by a
+dependency-free canvas renderer. The builder shows a live rotatable stage; every other
+surface draws a cached 2D projection of the same mesh.
+
+- [x] `render{family,dims,shape}` on all 26 vehicles; `art` field and `art.js` retired
+- [x] Six topology families (coupe/hatch/sedan/convertible/exotic/truck)
+- [x] `mesh.js` — pure, deterministic, unit-testable mesh generator
+- [x] `render3d.js` — per-object painter sort, flat shading, silhouette outline
+- [x] Acceptance harness (`fixtures.html`) — caught four defects before integration
+- [x] Persistent builder stage: option changes update it in place, rotation survives
+- [x] Drag-to-rotate with inertia, `touch-action` guard, reduced-motion respected
+- [x] All nine art surfaces migrated to the projection cache
+- [x] Lazy cache with LRU cap, IntersectionObserver prewarm, rAF-batched generation
+- [x] Bundle 103 KB against the 120 KB budget
+
+Known limits, deliberately accepted: the low sports coupes still look similar to each
+other, cars read as "correct proportions" rather than as *that* car, and dead nose-on /
+tail-on views are featureless (no grille or lights yet). The plan's fallback —
+per-car profile overrides — remains available as a polish pass.
+
+## v2b — discovery & rotation
 
 Goal: make the catalogue feel endless and give people a reason to return daily.
 
