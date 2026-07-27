@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dopamine Drive — mesh acceptance harness</title>
+<style>
+  body { background:#0b0c10; color:#eef0f4; font-family:'Segoe UI',system-ui,sans-serif; margin:0; padding:24px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  h2 { font-size:14px; text-transform:uppercase; letter-spacing:1.5px; color:#9aa3b2; margin:32px 0 12px; }
+  .note { color:#9aa3b2; font-size:13px; margin-bottom:8px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:14px; }
+  .cell { background:#171a22; border:1px solid #262b37; border-radius:14px; padding:10px; }
+  .cell canvas { width:100%; height:auto; display:block; }
+  .cell .lbl { font-size:12px; color:#9aa3b2; margin-top:6px; text-align:center; }
+  .sweep { display:flex; gap:10px; flex-wrap:wrap; }
+  .sweep canvas { background:#171a22; border:1px solid #262b37; border-radius:10px; }
+  .hero { display:grid; grid-template-columns:repeat(auto-fill,minmax(420px,1fr)); gap:16px; }
+  .hero canvas { width:100%; height:auto; background:#171a22; border:1px solid #262b37; border-radius:16px; }
+  #timing { color:#a3e635; font-size:13px; margin-top:6px; font-variant-numeric:tabular-nums; }
+</style>
+</head>
+<body>
+<h1>Mesh acceptance harness</h1>
+<div class="note">Criterion (a): distinguishable at card size without reading the label. (b): recognisable against a reference photo. (c): no artefacts anywhere in the rotation sweep.</div>
+<div id="timing">measuring…</div>
+
+<h2>Card size — all 26 vehicles (criterion a)</h2>
+<div class="grid" id="cards"></div>
+
+<h2>Hero size (criterion b)</h2>
+<div class="hero" id="heroes"></div>
+
+<h2>Rotation sweep — 911, Raptor, MX-5 (criterion c)</h2>
+<div id="sweeps"></div>
+
+<script src="data.js"></script>
+<script src="mesh.js"></script>
+<script src="render3d.js"></script>
+<script>
+const ALL = [
+  ...CARS.map(c => ({ id: c.id, label: c.brand + ' ' + c.model, render: c.render, paint: c.colors[0].hex, rim: c.wheels[0].style })),
+  ...BARNFINDS.map(b => ({ id: b.id, label: b.name, render: b.render, paint: b.paint, rim: 'five' })),
+];
+
+function make(parent, w, h, cls) {
+  const cv = document.createElement('canvas');
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  cv.width = w * dpr; cv.height = h * dpr;
+  cv.style.width = w + 'px'; cv.style.height = h + 'px';
+  const ctx = cv.getContext('2d');
+  ctx.scale(dpr, dpr);
+  parent.appendChild(cv);
+  return ctx;
+}
+
+const t0 = performance.now();
+let meshCount = 0;
+
+// Card grid
+const cards = document.getElementById('cards');
+for (const v of ALL) {
+  const cell = document.createElement('div');
+  cell.className = 'cell';
+  cards.appendChild(cell);
+  const ctx = make(cell, 220, 130);
+  const mesh = Mesh.build({ ...v.render });
+  meshCount++;
+  Render3D.draw(ctx, mesh, { w: 220, h: 130, paint: v.paint, rim: Render3D.rimFor(v.rim), yaw: -0.62, pitch: 0.20 });
+  const lbl = document.createElement('div');
+  lbl.className = 'lbl'; lbl.textContent = v.label;
+  cell.appendChild(lbl);
+}
+
+// Heroes
+const heroes = document.getElementById('heroes');
+for (const id of ['911', 'raptor', 'mx5', 'corvette', 'typer', 'm340i']) {
+  const v = ALL.find(x => x.id === id);
+  const ctx = make(heroes, 440, 260);
+  const mesh = Mesh.build({ ...v.render });
+  Render3D.draw(ctx, mesh, { w: 440, h: 260, paint: v.paint, rim: Render3D.rimFor(v.rim), yaw: -0.62, pitch: 0.18 });
+}
+
+// Rotation sweeps
+const sweeps = document.getElementById('sweeps');
+for (const id of ['911', 'raptor', 'mx5']) {
+  const v = ALL.find(x => x.id === id);
+  const row = document.createElement('div');
+  row.className = 'sweep';
+  sweeps.appendChild(row);
+  const mesh = Mesh.build({ ...v.render });
+  for (let i = 0; i < 8; i++) {
+    const ctx = make(row, 180, 110);
+    Render3D.draw(ctx, mesh, {
+      w: 180, h: 110, paint: v.paint, rim: Render3D.rimFor(v.rim),
+      yaw: (i / 8) * Math.PI * 2, pitch: 0.12 + (i % 3) * 0.10,
+    });
+  }
+}
+
+document.getElementById('timing').textContent =
+  `${meshCount} meshes built + ${document.querySelectorAll('canvas').length} renders in ${(performance.now() - t0).toFixed(0)} ms`;
+</script>
+</body>
+</html>
