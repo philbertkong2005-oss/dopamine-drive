@@ -10,7 +10,7 @@ const fmt = n => '$' + Math.round(n).toLocaleString('en-CA');
 const state = {
   view: 'showroom',
   filters: { body: 'all', price: 'all' },
-  build: null,           // { carId, trim, color, wheel, packages:Set }
+  build: null,           // { carId, trim, color, wheel, packages:Set } — all ids, never indices
   compare: [null, null], // refs like {kind:'stock', carId, trimId} or {kind:'garage', buildId}
   lastTotal: 0,
 };
@@ -29,6 +29,53 @@ const store = {
   get muted() { return safeGet('dd_mute') === '1'; },
   set muted(v) { safeSet('dd_mute', v ? '1' : '0'); },
 };
+
+// ---------- stable option ids ----------
+// Saved builds reference options by id, never by list position, so adding or
+// reordering a colour in data.js can't silently repaint someone's garage.
+// An entry may declare its own `id`; otherwise one is derived from its name.
+const SCHEMA_VERSION = 1;
+const slug = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+
+for (const car of CARS) {
+  for (const list of [car.colors, car.wheels, car.packages]) {
+    const seen = new Set();
+    list.forEach((o, i) => {
+      let id = o.id || slug(o.name);
+      while (seen.has(id)) id = `${id}-${i}`;   // names are unique in practice; be safe anyway
+      seen.add(id);
+      o.id = id;
+    });
+  }
+}
+
+const pick = (list, id, fallback = 0) => list.find(o => o.id === id) || list[fallback];
+
+// Builds saved before ids existed stored array positions. Convert them once.
+function migrateGarage() {
+  const raw = safeGet('dd_garage');
+  if (!raw) { safeSet('dd_version', String(SCHEMA_VERSION)); return; }
+  if (Number(safeGet('dd_version') || 0) >= SCHEMA_VERSION) return;
+
+  let entries;
+  try { entries = JSON.parse(raw); } catch { return; }
+
+  const byIndex = (list, i) => (typeof i === 'number' ? list[i] : list.find(o => o.id === i)) || list[0];
+  const migrated = entries.map(g => {
+    if (g.barn) return g;
+    const car = CARS.find(c => c.id === g.carId);
+    if (!car) return g;
+    return {
+      ...g,
+      color: byIndex(car.colors, g.color).id,
+      wheel: byIndex(car.wheels, g.wheel).id,
+      packages: (g.packages || []).map(p => byIndex(car.packages, p).id),
+    };
+  });
+  safeSet('dd_garage', JSON.stringify(migrated));
+  safeSet('dd_version', String(SCHEMA_VERSION));
+}
+migrateGarage();
 
 // ---------- sound (tiny WebAudio synth) ----------
 const Sound = (() => {
@@ -99,11 +146,12 @@ const minPrice = car => Math.min(...car.trims.map(t => t.price));
 
 function buildTotal(b) {
   const car = carById(b.carId);
-  const trim = car.trims.find(t => t.id === b.trim);
-  const color = car.colors[b.color];
-  const wheel = car.wheels[b.wheel];
-  let total = trim.price + color.price + wheel.price;
-  for (const i of b.packages) total += car.packages[i].price;
+  const trim = car.trims.find(t => t.id === b.trim) || car.trims[0];
+  let total = trim.price + pick(car.colors, b.color).price + pick(car.wheels, b.wheel).price;
+  for (const id of b.packages) {
+    const p = car.packages.find(x => x.id === id);
+    if (p) total += p.price;
+  }
   return total;
 }
 
@@ -112,8 +160,8 @@ function artFor(car, b) {
     body: car.art.body,
     len: car.art.len,
     wing: car.art.wing,
-    paint: b ? car.colors[b.color].hex : car.colors[0].hex,
-    wheelStyle: b ? car.wheels[b.wheel].style : car.wheels[0].style,
+    paint: b ? pick(car.colors, b.color).hex : car.colors[0].hex,
+    wheelStyle: b ? pick(car.wheels, b.wheel).style : car.wheels[0].style,
   });
 }
 
@@ -193,7 +241,12 @@ function renderShowroom() {
 // --- builder ---
 function startBuild(carId) {
   Sound.select();
-  state.build = { carId, trim: carById(carId).trims[0].id, color: 0, wheel: 0, packages: new Set() };
+  const car = carById(carId);
+  state.build = {
+    carId, trim: car.trims[0].id,
+    color: car.colors[0].id, wheel: car.wheels[0].id,
+    packages: new Set(),
+  };
   state.lastTotal = buildTotal(state.build);
   state.view = 'build';
   $$('.nav-btn').forEach(b => b.classList.remove('active'));
@@ -204,7 +257,9 @@ function startBuild(carId) {
 function renderBuild() {
   const b = state.build;
   const car = carById(b.carId);
-  const trim = car.trims.find(t => t.id === b.trim);
+  const trim = car.trims.find(t => t.id === b.trim) || car.trims[0];
+  const color = pick(car.colors, b.color);
+  const wheel = pick(car.wheels, b.wheel);
   const total = buildTotal(b);
 
   main.innerHTML = `
@@ -212,7 +267,7 @@ function renderBuild() {
     <div class="stage">
       <div id="stage-art" class="stage-swap">${artFor(car, b)}</div>
       <div class="car-title">${car.year} ${car.brand} ${car.model}</div>
-      <div class="car-sub">${trim.name} · ${car.colors[b.color].name}</div>
+      <div class="car-sub">${trim.name} · ${color.name}</div>
       <div class="ticker-label">Your price</div>
       <div class="ticker" id="ticker">${fmt(total)}</div>
       <div class="spec-strip">
@@ -234,28 +289,28 @@ function renderBuild() {
       </div>
       <div class="opt-section">
         <div class="opt-title"><span class="step-num">2</span>Paint</div>
-        <div class="color-name">${car.colors[b.color].name} ${car.colors[b.color].price ? `<span>+${fmt(car.colors[b.color].price)}</span>` : '<span>included</span>'}</div>
+        <div class="color-name">${color.name} ${color.price ? `<span>+${fmt(color.price)}</span>` : '<span>included</span>'}</div>
         <div class="swatch-row">
-          ${car.colors.map((c, i) => `<div class="swatch ${i === b.color ? 'on' : ''}" data-color="${i}" style="background:${c.hex}" title="${c.name}"></div>`).join('')}
+          ${car.colors.map(c => `<div class="swatch ${c.id === b.color ? 'on' : ''}" data-color="${c.id}" style="background:${c.hex}" title="${c.name}"></div>`).join('')}
         </div>
       </div>
       <div class="opt-section">
         <div class="opt-title"><span class="step-num">3</span>Wheels</div>
         <div class="wheel-row">
-          ${car.wheels.map((w, i) => `
-            <div class="wheel-opt ${i === b.wheel ? 'on' : ''}" data-wheel="${i}">${w.name}
+          ${car.wheels.map(w => `
+            <div class="wheel-opt ${w.id === b.wheel ? 'on' : ''}" data-wheel="${w.id}">${w.name}
               <span class="w-price">${w.price ? '+' + fmt(w.price) : 'included'}</span>
             </div>`).join('')}
         </div>
       </div>
       <div class="opt-section">
         <div class="opt-title"><span class="step-num">4</span>Options</div>
-        ${car.packages.map((p, i) => `
-          <div class="pkg ${b.packages.has(i) ? 'on' : ''}" data-pkg="${i}">
+        ${car.packages.map(p => `
+          <div class="pkg ${b.packages.has(p.id) ? 'on' : ''}" data-pkg="${p.id}">
             <div><div class="p-name">${p.name}</div><div class="p-desc">${p.desc}</div></div>
             <div style="display:flex;align-items:center;gap:12px">
               <span class="p-price">+${fmt(p.price)}</span>
-              <span class="check">${b.packages.has(i) ? '✔' : ''}</span>
+              <span class="check">${b.packages.has(p.id) ? '✔' : ''}</span>
             </div>
           </div>`).join('')}
         ${car.packages.length === 0 ? '<div class="sub">No packages — it comes fully loaded.</div>' : ''}
@@ -280,11 +335,11 @@ function renderBuild() {
   };
 
   $$('.trim-card').forEach(el => el.onclick = () => { b.trim = el.dataset.trim; rerender(Sound.select); });
-  $$('.swatch').forEach(el => el.onclick = () => { b.color = +el.dataset.color; rerender(Sound.paint); });
-  $$('.wheel-opt').forEach(el => el.onclick = () => { b.wheel = +el.dataset.wheel; rerender(Sound.select); });
+  $$('.swatch').forEach(el => el.onclick = () => { b.color = el.dataset.color; rerender(Sound.paint); });
+  $$('.wheel-opt').forEach(el => el.onclick = () => { b.wheel = el.dataset.wheel; rerender(Sound.select); });
   $$('.pkg').forEach(el => el.onclick = () => {
-    const i = +el.dataset.pkg;
-    b.packages.has(i) ? b.packages.delete(i) : b.packages.add(i);
+    const id = el.dataset.pkg;
+    b.packages.has(id) ? b.packages.delete(id) : b.packages.add(id);
     rerender(Sound.select);
   });
   $('#back-btn').onclick = () => go('showroom');
@@ -294,14 +349,14 @@ function renderBuild() {
 function finishBuild() {
   const b = state.build;
   const car = carById(b.carId);
-  const trim = car.trims.find(t => t.id === b.trim);
+  const trim = car.trims.find(t => t.id === b.trim) || car.trims[0];
   const total = buildTotal(b);
 
   const entry = {
     id: 'b' + Date.now(),
     carId: b.carId, trim: b.trim, color: b.color, wheel: b.wheel,
     packages: [...b.packages],
-    total, when: todayKey(),
+    total, when: todayKey(), v: SCHEMA_VERSION,
   };
   store.garage = [entry, ...store.garage];
   updateGarageCount(true);
@@ -314,9 +369,11 @@ function finishBuild() {
     ${artFor(car, b)}
     <div class="m-lines">
       <div class="m-line"><span>Vehicle</span><span>${car.year} ${car.brand} ${car.model} ${trim.name}</span></div>
-      <div class="m-line"><span>Paint</span><span>${car.colors[b.color].name}</span></div>
-      <div class="m-line"><span>Wheels</span><span>${car.wheels[b.wheel].name}</span></div>
-      ${[...b.packages].map(i => `<div class="m-line"><span>Option</span><span>${car.packages[i].name}</span></div>`).join('')}
+      <div class="m-line"><span>Paint</span><span>${pick(car.colors, b.color).name}</span></div>
+      <div class="m-line"><span>Wheels</span><span>${pick(car.wheels, b.wheel).name}</span></div>
+      ${[...b.packages].map(id => car.packages.find(p => p.id === id))
+        .filter(Boolean)
+        .map(p => `<div class="m-line"><span>Option</span><span>${p.name}</span></div>`).join('')}
       <div class="m-total"><span>Total</span><span>${fmt(total)}</span></div>
     </div>
     <div class="m-actions">
@@ -358,12 +415,12 @@ function renderGarage() {
             </div>`;
           }
           const car = carById(g.carId);
-          const trim = car.trims.find(t => t.id === g.trim);
+          const trim = car.trims.find(t => t.id === g.trim) || car.trims[0];
           return `
           <div class="build-card">
             ${artFor(car, g)}
             <div class="b-title">${car.year} ${car.brand} ${car.model}</div>
-            <div class="b-sub">${trim.name} · ${car.colors[g.color].name} · built ${g.when}</div>
+            <div class="b-sub">${trim.name} · ${pick(car.colors, g.color).name} · built ${g.when}</div>
             <div class="b-price">${fmt(g.total)}</div>
             <div class="b-actions">
               <button class="btn btn-hot" data-rebuild="${g.id}">Reconfigure</button>
@@ -405,7 +462,7 @@ function compareOptions() {
   for (const g of store.garage) {
     if (g.barn) continue;
     const car = carById(g.carId);
-    const trim = car.trims.find(t => t.id === g.trim);
+    const trim = car.trims.find(t => t.id === g.trim) || car.trims[0];
     opts.push({ key: 'garage:' + g.id, label: `🏠 My ${car.model} ${trim.name} (${fmt(g.total)})` });
   }
   for (const c of CARS) for (const t of c.trims) {
@@ -421,15 +478,15 @@ function resolveCompare(key) {
     const g = store.garage.find(x => x.id === a);
     if (!g) return null;
     const car = carById(g.carId);
-    const trim = car.trims.find(t => t.id === g.trim);
+    const trim = car.trims.find(t => t.id === g.trim) || car.trims[0];
     return {
       label: `My ${car.model}`, sub: trim.name + ' (your build)',
       art: artFor(car, g), price: g.total, trim, car,
-      extras: g.packages.length,
+      extras: (g.packages || []).length,
     };
   }
   const car = carById(a);
-  const trim = car.trims.find(t => t.id === b);
+  const trim = car.trims.find(t => t.id === b) || car.trims[0];
   return { label: `${car.brand} ${car.model}`, sub: trim.name + ' (stock)', art: artFor(car), price: trim.price, trim, car, extras: 0 };
 }
 

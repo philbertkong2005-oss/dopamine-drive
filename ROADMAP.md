@@ -8,12 +8,13 @@ Status: **v1 shipped** — showroom, configurator, garage, compare, daily barn f
 
 Small, unglamorous, and much cheaper to do now than later.
 
-- [ ] **Stable option IDs.** Saved builds currently store paint/wheels/packages as *array
-      indices* (`color: 3`). Adding or reordering a colour in `data.js` silently repaints
-      every existing garage build. Move to string IDs (`color: 'python-green'`) like trims
-      already use. **Blocking: do this before the v2 data expansion.**
-- [ ] **Schema version + migration.** Add `dd_version` to localStorage so future shape
-      changes can migrate old garages instead of corrupting them.
+- [x] ~~**Stable option IDs.**~~ Done. Builds reference options by id (`color: 'python-green'`),
+      never by array position. Ids are declared per entry or derived from the name, so
+      `data.js` needed no churn and new entries can pin an explicit `id`. Verified by
+      inserting two colours and reversing all three option lists: saved builds keep their
+      paint and price.
+- [x] ~~**Schema version + migration.**~~ Done. `dd_version` in localStorage; index-based
+      garages from v1 migrate to ids automatically on first load.
 - [x] ~~Verify the midnight barn-find rollover~~ — confirmed 2026-07-26: the pick changed
       across midnight mid-session (Countach → McLaren F1) and became claimable again.
 - [ ] **Price/trim audit.** Current CAD MSRPs are hand-curated approximations; spot-check
