@@ -5,3 +5,6 @@ node_modules/
 
 # Build output — regenerate with build-single-file.ps1
 dist/
+
+# Machine-specific launch config (contains absolute paths)
+.claude/
