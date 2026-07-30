@@ -3,103 +3,626 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Dopamine Drive — mesh acceptance harness</title>
+<title>Dopamine Drive — mesh authoring tool &amp; acceptance harness</title>
+<!--
+  DEV TOOL. Never bundled: build-single-file.ps1 inlines only index.html,
+  styles.css and the five JS files, so everything here costs zero bundle bytes.
+
+  Three tabs:
+    Author   — the v2a.5 authoring loop: pick a car, drag sliders, watch it
+               re-mesh live against a local reference photo, emit the `shape`
+               block for data.js.
+    Gallery  — acceptance harness. Blind mode hides labels AND marque colours,
+               which is the binding v2a.5 acceptance condition.
+    Sweep    — rotation sweep, for the "no geometry artefacts" criterion.
+
+  Sliders are derived by introspecting each car's `shape` object, so when the
+  mesher's parameter set grows in step 2 the controls appear automatically.
+-->
 <style>
-  body { background:#0b0c10; color:#eef0f4; font-family:'Segoe UI',system-ui,sans-serif; margin:0; padding:24px; }
-  h1 { font-size:20px; margin:0 0 4px; }
-  h2 { font-size:14px; text-transform:uppercase; letter-spacing:1.5px; color:#9aa3b2; margin:32px 0 12px; }
-  .note { color:#9aa3b2; font-size:13px; margin-bottom:8px; }
-  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:14px; }
-  .cell { background:#171a22; border:1px solid #262b37; border-radius:14px; padding:10px; }
+  :root {
+    --bg:#0b0c10; --panel:#171a22; --panel2:#1d212b; --line:#262b37;
+    --text:#eef0f4; --muted:#9aa3b2; --hot:#ff3d71; --lime:#a3e635; --cool:#38bdf8;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font-family:'Segoe UI',system-ui,sans-serif; font-size:14px; }
+  h1 { font-size:17px; margin:0; }
+  .top { display:flex; align-items:center; gap:16px; padding:12px 18px; flex-wrap:wrap;
+         border-bottom:1px solid var(--line); position:sticky; top:0;
+         background:rgba(11,12,16,.94); backdrop-filter:blur(10px); z-index:20; }
+  .top .stat { min-width:0; overflow-wrap:anywhere; }
+  .tabs { display:flex; gap:6px; }
+  .tab { background:none; border:none; color:var(--muted); font:inherit; font-weight:600;
+         padding:7px 14px; border-radius:999px; cursor:pointer; }
+  .tab.on { background:var(--panel2); color:#fff; box-shadow:inset 0 0 0 1px var(--line); }
+  .grow { flex:1; }
+  .stat { color:var(--lime); font-variant-numeric:tabular-nums; font-size:12px; }
+  .stat.warn { color:#fbbf24; }
+  main { padding:18px; }
+  .view { display:none; }
+  .view.on { display:block; }
+
+  /* ---------- author ---------- */
+  .author { display:grid; grid-template-columns:minmax(0,1fr) 400px; gap:18px; align-items:start; }
+  @media (max-width:1100px) { .author { grid-template-columns:1fr; } }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:14px; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  label.lbl { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:1px; }
+  select, input[type=text], button.act, input[type=file] {
+    background:var(--panel2); color:var(--text); border:1px solid var(--line);
+    border-radius:8px; padding:7px 10px; font:inherit; }
+  button.act { cursor:pointer; font-weight:600; }
+  button.act:hover { background:#242938; }
+  button.act.primary { background:linear-gradient(135deg,#ff3d71,#ff8a3d); border-color:transparent; color:#fff; }
+  button.act.danger { border-color:#5b2330; color:#ff8fa6; }
+
+  .stagewrap { position:relative; margin-top:12px; background:#0e1015;
+               border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+  #authorCv { display:block; width:100%; height:420px; cursor:grab; touch-action:none; }
+  #authorCv.dragging { cursor:grabbing; }
+  #refOverlay { position:absolute; inset:0; width:100%; height:100%;
+                object-fit:contain; pointer-events:none; display:none; }
+  .hint { position:absolute; bottom:6px; left:50%; transform:translateX(-50%);
+          font-size:11px; letter-spacing:1.4px; text-transform:uppercase;
+          color:var(--muted); opacity:.6; pointer-events:none; }
+  .refside { margin-top:12px; }
+  .refside img { width:100%; border-radius:10px; border:1px solid var(--line); display:none; }
+
+  .group-title { font-size:11px; text-transform:uppercase; letter-spacing:1.4px;
+                 color:var(--muted); margin:14px 0 6px; border-top:1px solid var(--line); padding-top:10px; }
+  .group-title:first-child { border-top:none; margin-top:0; padding-top:0; }
+  .prow { display:grid; grid-template-columns:96px 1fr 62px; gap:8px; align-items:center; margin-bottom:5px; }
+  .prow .pname { font-size:12px; color:var(--text); font-family:ui-monospace,Consolas,monospace; }
+  .prow.dirty .pname { color:var(--hot); font-weight:700; }
+  .prow input[type=range] { width:100%; accent-color:var(--cool); }
+  .prow input[type=number] {
+    width:100%; background:var(--panel2); color:var(--text); border:1px solid var(--line);
+    border-radius:6px; padding:3px 5px; font:inherit; font-size:12px;
+    font-variant-numeric:tabular-nums; }
+  textarea { width:100%; min-height:150px; background:#0e1015; color:var(--lime);
+             border:1px solid var(--line); border-radius:10px; padding:10px;
+             font-family:ui-monospace,Consolas,monospace; font-size:12px; resize:vertical; }
+
+  /* ---------- gallery / sweep ---------- */
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:12px; }
+  .cell { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:9px; }
   .cell canvas { width:100%; height:auto; display:block; }
-  .cell .lbl { font-size:12px; color:#9aa3b2; margin-top:6px; text-align:center; }
-  .sweep { display:flex; gap:10px; flex-wrap:wrap; }
-  .sweep canvas { background:#171a22; border:1px solid #262b37; border-radius:10px; }
-  .hero { display:grid; grid-template-columns:repeat(auto-fill,minmax(420px,1fr)); gap:16px; }
-  .hero canvas { width:100%; height:auto; background:#171a22; border:1px solid #262b37; border-radius:16px; }
-  #timing { color:#a3e635; font-size:13px; margin-top:6px; font-variant-numeric:tabular-nums; }
+  .cell .cap { font-size:11px; color:var(--muted); text-align:center; margin-top:5px; min-height:14px; }
+  .cell .cap.hidden { visibility:hidden; }
+  .sweeprow { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
+  .sweeprow canvas { background:var(--panel); border:1px solid var(--line); border-radius:8px; }
+  .sweeplbl { font-size:12px; color:var(--muted); margin:6px 0; }
+  .note { color:var(--muted); font-size:12px; margin-bottom:12px; line-height:1.5; }
 </style>
 </head>
 <body>
-<h1>Mesh acceptance harness</h1>
-<div class="note">Criterion (a): distinguishable at card size without reading the label. (b): recognisable against a reference photo. (c): no artefacts anywhere in the rotation sweep.</div>
-<div id="timing">measuring…</div>
 
-<h2>Card size — all 26 vehicles (criterion a)</h2>
-<div class="grid" id="cards"></div>
+<div class="top">
+  <h1>Mesh authoring tool</h1>
+  <div class="tabs">
+    <button class="tab on" data-tab="author">Author</button>
+    <button class="tab" data-tab="gallery">Gallery</button>
+    <button class="tab" data-tab="sweep">Sweep</button>
+  </div>
+  <div class="grow"></div>
+  <div class="stat" id="stat"></div>
+</div>
 
-<h2>Hero size (criterion b)</h2>
-<div class="hero" id="heroes"></div>
+<main>
+  <!-- ============ AUTHOR ============ -->
+  <section class="view on" id="v-author">
+    <div class="author">
+      <div>
+        <div class="card">
+          <div class="row">
+            <label class="lbl" for="carSel">Car</label>
+            <select id="carSel" style="min-width:230px"></select>
+            <label class="lbl" for="famSel">Family</label>
+            <select id="famSel"></select>
+            <label class="lbl" for="wingSel">Wing</label>
+            <select id="wingSel">
+              <option value="">none</option><option value="lip">lip</option><option value="high">high</option>
+            </select>
+            <label class="lbl" for="wheelSel">Wheel</label>
+            <select id="wheelSel"></select>
+          </div>
+          <div class="stagewrap">
+            <canvas id="authorCv"></canvas>
+            <img id="refOverlay" alt="">
+            <div class="hint">drag to rotate</div>
+          </div>
+          <div class="row" style="margin-top:10px">
+            <label class="lbl">Reference</label>
+            <input type="file" id="refFile" accept="image/*">
+            <label class="lbl"><input type="checkbox" id="refOn"> overlay</label>
+            <input type="range" id="refOpacity" min="0" max="1" step="0.02" value="0.45" style="width:120px">
+            <button class="act" id="refClear">clear</button>
+            <span class="lbl">stays local — never written to the repo</span>
+          </div>
+          <div class="refside"><img id="refSide" alt=""></div>
+        </div>
+      </div>
 
-<h2>Rotation sweep — 911, Raptor, MX-5 (criterion c)</h2>
-<div id="sweeps"></div>
+      <div>
+        <div class="card">
+          <div class="row" style="margin-bottom:8px">
+            <button class="act primary" id="emitBtn">Emit shape block</button>
+            <button class="act" id="copyBtn">Copy</button>
+            <button class="act danger" id="revertBtn">Revert to data.js</button>
+          </div>
+          <div id="params"></div>
+        </div>
+        <div class="card" style="margin-top:14px">
+          <div class="row" style="margin-bottom:8px">
+            <label class="lbl">Emitted <code>shape</code> — paste into data.js</label>
+          </div>
+          <textarea id="emit" spellcheck="false" readonly></textarea>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ GALLERY ============ -->
+  <section class="view" id="v-gallery">
+    <div class="note">
+      Acceptance criterion (a): distinguishable from each other <em>without reading the label</em>.
+      Criterion (b): recognisable against a reference photo.
+      <strong>Blind mode</strong> hides both the label and the marque colour — that combination is
+      the binding v2a.5 acceptance condition, and (b) must be judged against real reference photos,
+      never from memory.
+    </div>
+    <div class="row" style="margin-bottom:12px">
+      <label class="lbl"><input type="checkbox" id="blind"> blind mode</label>
+      <label class="lbl"><input type="checkbox" id="usePaint" checked> marque colours</label>
+      <button class="act" id="shuffleBtn">Shuffle order</button>
+      <button class="act" id="revealBtn">Reveal labels</button>
+    </div>
+    <div class="grid" id="gallery"></div>
+  </section>
+
+  <!-- ============ SWEEP ============ -->
+  <section class="view" id="v-sweep">
+    <div class="note">Rotation sweep — the "no geometry artefacts anywhere" criterion. Watch the
+      nose-on and tail-on frames, where painter-sorted objects are most likely to fail.</div>
+    <div id="sweeps"></div>
+  </section>
+</main>
 
 <script src="data.js"></script>
 <script src="mesh.js"></script>
 <script src="render3d.js"></script>
 <script>
+// ============================================================
+// Shared vehicle list — catalogue cars plus barn-find classics.
+// ============================================================
 const ALL = [
-  ...CARS.map(c => ({ id: c.id, label: c.brand + ' ' + c.model, render: c.render, paint: c.colors[0].hex, rim: c.wheels[0].style })),
-  ...BARNFINDS.map(b => ({ id: b.id, label: b.name, render: b.render, paint: b.paint, rim: 'five' })),
+  ...CARS.map(c => ({
+    id: c.id, label: `${c.brand} ${c.model}`, kind: 'car',
+    render: c.render, paint: c.colors[0].hex,
+    wheels: c.wheels.map(w => w.style),
+  })),
+  ...BARNFINDS.map(b => ({
+    id: b.id, label: b.name, kind: 'barn',
+    render: b.render, paint: b.paint, wheels: ['five'],
+  })),
 ];
 
-function make(parent, w, h, cls) {
+const NEUTRAL = '#b8bcc2';
+const clone = o => JSON.parse(JSON.stringify(o));
+const triCount = m => m.objects.reduce((t, o) => t + o.faces.reduce((s, f) => s + (f.i.length - 2), 0), 0);
+
+function makeCanvas(parent, w, h) {
   const cv = document.createElement('canvas');
-  const dpr = Math.min(2, window.devicePixelRatio || 1);
-  cv.width = w * dpr; cv.height = h * dpr;
+  const d = Math.min(2, devicePixelRatio || 1);
+  cv.width = w * d; cv.height = h * d;
   cv.style.width = w + 'px'; cv.style.height = h + 'px';
   const ctx = cv.getContext('2d');
-  ctx.scale(dpr, dpr);
+  ctx.scale(d, d);
   parent.appendChild(cv);
   return ctx;
 }
 
-const t0 = performance.now();
-let meshCount = 0;
+// ============================================================
+// Parameter metadata.
+// Ranges for the parameters that exist today; inferMeta covers anything
+// the step-2 mesher adds, so new sliders appear without editing this file.
+// ============================================================
+const GROUPS = ['stations', 'vertical', 'plan', 'wheels', 'other'];
+const GROUP_TITLES = {
+  stations: 'longitudinal stations (0 = nose … 1 = tail)',
+  vertical: 'vertical (fraction of height)',
+  plan: 'plan half-width (fraction of max width)',
+  wheels: 'wheels',
+  other: 'other',
+};
+const META = {
+  cowl:  { group: 'stations', min: 0, max: 1, step: 0.005 },
+  roofF: { group: 'stations', min: 0, max: 1, step: 0.005 },
+  roofR: { group: 'stations', min: 0, max: 1, step: 0.005 },
+  deck:  { group: 'stations', min: 0, max: 1, step: 0.005 },
+  bedStart: { group: 'stations', min: 0, max: 1, step: 0.005 },
 
-// Card grid
-const cards = document.getElementById('cards');
-for (const v of ALL) {
-  const cell = document.createElement('div');
-  cell.className = 'cell';
-  cards.appendChild(cell);
-  const ctx = make(cell, 220, 130);
-  const mesh = Mesh.build({ ...v.render });
-  meshCount++;
-  Render3D.draw(ctx, mesh, { w: 220, h: 130, paint: v.paint, rim: Render3D.rimFor(v.rim), yaw: -0.62, pitch: 0.20 });
-  const lbl = document.createElement('div');
-  lbl.className = 'lbl'; lbl.textContent = v.label;
-  cell.appendChild(lbl);
+  nose:   { group: 'vertical', min: 0, max: 1.2, step: 0.005 },
+  hood:   { group: 'vertical', min: 0, max: 1.2, step: 0.005 },
+  roof:   { group: 'vertical', min: 0, max: 1.2, step: 0.005 },
+  tail:   { group: 'vertical', min: 0, max: 1.2, step: 0.005 },
+  rocker: { group: 'vertical', min: 0, max: 0.6, step: 0.005 },
+  belt:   { group: 'vertical', min: 0, max: 1.2, step: 0.005 },
+  bedFloor: { group: 'vertical', min: 0, max: 1.2, step: 0.005 },
+  bedWall:  { group: 'vertical', min: 0, max: 1.2, step: 0.005 },
+
+  wNose:  { group: 'plan', min: 0.3, max: 1.2, step: 0.005 },
+  wFront: { group: 'plan', min: 0.3, max: 1.2, step: 0.005 },
+  wMid:   { group: 'plan', min: 0.3, max: 1.2, step: 0.005 },
+  wRear:  { group: 'plan', min: 0.3, max: 1.2, step: 0.005 },
+  wTail:  { group: 'plan', min: 0.3, max: 1.2, step: 0.005 },
+  cabin:  { group: 'plan', min: 0.3, max: 1.1, step: 0.005 },
+
+  wheel: { group: 'wheels', min: 400, max: 1100, step: 5 },
+  tire:  { group: 'wheels', min: 0.08, max: 0.6, step: 0.005 },
+};
+
+// Unknown key: guess a usable range from the value's magnitude, so the
+// step-2 parameters are tunable the moment they exist.
+function inferMeta(v) {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return null;
+  if (Math.abs(v) > 3) {
+    const mag = Math.pow(10, Math.floor(Math.log10(Math.abs(v))));
+    return { group: 'other', min: 0, max: Math.max(mag * 10, Math.abs(v) * 2), step: mag / 100 };
+  }
+  const frac = v >= 0 && v <= 1.5;
+  return { group: 'other', min: frac ? 0 : -2, max: frac ? 1.5 : 2, step: 0.005 };
+}
+const metaFor = (k, v) => META[k] || inferMeta(v);
+
+// ============================================================
+// Author tab
+// ============================================================
+const A = {
+  car: null,      // entry from ALL
+  render: null,   // working copy, edited by the sliders
+  base: null,     // pristine copy from data.js, for revert + dirty marks
+  wheelStyle: 'five',
+  yaw: -0.62, pitch: 0.20,
+  cv: null, ctx: null,
+};
+
+const EDIT_KEY = id => 'dd_author_' + id;
+
+const carSel = document.getElementById('carSel');
+const famSel = document.getElementById('famSel');
+const wingSel = document.getElementById('wingSel');
+const wheelSel = document.getElementById('wheelSel');
+
+function setStat(msg, warn) {
+  const el = document.getElementById('stat');
+  el.textContent = msg;
+  el.classList.toggle('warn', !!warn);
 }
 
-// Heroes
-const heroes = document.getElementById('heroes');
-for (const id of ['911', 'raptor', 'mx5', 'corvette', 'typer', 'm340i']) {
-  const v = ALL.find(x => x.id === id);
-  const ctx = make(heroes, 440, 260);
-  const mesh = Mesh.build({ ...v.render });
-  Render3D.draw(ctx, mesh, { w: 440, h: 260, paint: v.paint, rim: Render3D.rimFor(v.rim), yaw: -0.62, pitch: 0.18 });
+function saveEdit() {
+  try { localStorage.setItem(EDIT_KEY(A.car.id), JSON.stringify(A.render)); } catch { /* private mode */ }
 }
 
-// Rotation sweeps
-const sweeps = document.getElementById('sweeps');
-for (const id of ['911', 'raptor', 'mx5']) {
-  const v = ALL.find(x => x.id === id);
-  const row = document.createElement('div');
-  row.className = 'sweep';
-  sweeps.appendChild(row);
-  const mesh = Mesh.build({ ...v.render });
-  for (let i = 0; i < 8; i++) {
-    const ctx = make(row, 180, 110);
-    Render3D.draw(ctx, mesh, {
-      w: 180, h: 110, paint: v.paint, rim: Render3D.rimFor(v.rim),
-      yaw: (i / 8) * Math.PI * 2, pitch: 0.12 + (i % 3) * 0.10,
-    });
+function loadCar(id) {
+  const entry = ALL.find(v => v.id === id);
+  A.car = entry;
+  A.base = clone(entry.render);
+  // Restore in-progress tuning, so an accidental reload during a long
+  // authoring session doesn't discard the work.
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(EDIT_KEY(id)) || 'null'); } catch { saved = null; }
+  A.render = saved && saved.shape ? saved : clone(entry.render);
+  A.wheelStyle = entry.wheels[0] || 'five';
+
+  famSel.value = A.render.family;
+  wingSel.value = A.render.wing || '';
+  wheelSel.innerHTML = [...new Set(entry.wheels)].map(w => `<option value="${w}">${w}</option>`).join('');
+  wheelSel.value = A.wheelStyle;
+
+  buildParams();
+  renderAuthor();
+  emitShape();
+}
+
+function buildParams() {
+  const host = document.getElementById('params');
+  host.innerHTML = '';
+  const shape = A.render.shape;
+
+  const byGroup = {};
+  for (const k of Object.keys(shape)) {
+    const m = metaFor(k, shape[k]);
+    if (!m) continue;
+    (byGroup[m.group] = byGroup[m.group] || []).push(k);
+  }
+
+  for (const g of GROUPS) {
+    const keys = byGroup[g];
+    if (!keys || !keys.length) continue;
+    const t = document.createElement('div');
+    t.className = 'group-title';
+    t.textContent = GROUP_TITLES[g];
+    host.appendChild(t);
+
+    for (const k of keys) {
+      const m = metaFor(k, shape[k]);
+      const row = document.createElement('div');
+      row.className = 'prow';
+      row.innerHTML =
+        `<span class="pname"></span>` +
+        `<input type="range" min="${m.min}" max="${m.max}" step="${m.step}">` +
+        `<input type="number" min="${m.min}" max="${m.max}" step="${m.step}">`;
+      row.querySelector('.pname').textContent = k;
+      const [range, num] = row.querySelectorAll('input');
+      range.value = shape[k];
+      num.value = shape[k];
+
+      const set = v => {
+        const n = Number(v);
+        if (!Number.isFinite(n)) return;
+        shape[k] = n;
+        range.value = n;
+        num.value = n;
+        row.classList.toggle('dirty', n !== A.base.shape[k]);
+        saveEdit();
+        renderAuthor();
+      };
+      range.addEventListener('input', e => set(e.target.value));
+      num.addEventListener('change', e => set(e.target.value));
+      row.classList.toggle('dirty', shape[k] !== A.base.shape[k]);
+      host.appendChild(row);
+    }
   }
 }
 
-document.getElementById('timing').textContent =
-  `${meshCount} meshes built + ${document.querySelectorAll('canvas').length} renders in ${(performance.now() - t0).toFixed(0)} ms`;
+function renderAuthor() {
+  const cv = A.cv, ctx = A.ctx;
+  const d = Math.min(2, devicePixelRatio || 1);
+  const w = cv.clientWidth || 700, h = cv.clientHeight || 420;
+  if (cv.width !== Math.round(w * d) || cv.height !== Math.round(h * d)) {
+    cv.width = Math.round(w * d);
+    cv.height = Math.round(h * d);
+  }
+  ctx.setTransform(d, 0, 0, d, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+
+  let mesh = null, err = null;
+  try {
+    mesh = Mesh.build({ ...A.render, wheelStyle: A.wheelStyle });
+  } catch (e) { err = e; }
+
+  if (err) {
+    // Authoring means dragging parameters into invalid combinations; that
+    // must show a message, not a blank canvas with a console error.
+    ctx.fillStyle = '#ff8fa6';
+    ctx.font = '13px ui-monospace, Consolas, monospace';
+    ctx.fillText('Mesh.build threw: ' + err.message, 14, 26);
+    setStat('mesh error — see canvas', true);
+    return;
+  }
+
+  Render3D.draw(ctx, mesh, {
+    w, h, paint: NEUTRAL, rim: Render3D.rimFor(A.wheelStyle),
+    yaw: A.yaw, pitch: A.pitch,
+  });
+
+  setStat(`${A.car.label} — ${triCount(mesh)} tris · ${mesh.objects.length} objects · yaw ${A.yaw.toFixed(2)} pitch ${A.pitch.toFixed(2)}`);
+}
+
+// Emit a `shape` block matching data.js formatting, one line per group.
+function emitShape() {
+  const shape = A.render.shape;
+  const byGroup = {};
+  for (const k of Object.keys(shape)) {
+    const g = (metaFor(k, shape[k]) || { group: 'other' }).group;
+    (byGroup[g] = byGroup[g] || []).push(k);
+  }
+  // Match data.js's existing convention — mm values as integers, fractions to
+  // at least two decimals — so re-authoring 26 cars produces clean diffs
+  // instead of churn between 1 and 1.00.
+  const fmt = k => {
+    const v = shape[k];
+    const m = metaFor(k, v) || {};
+    if ((m.step || 0) >= 1) return `${k}: ${Math.round(v)}`;
+    return `${k}: ${v.toFixed(3).replace(/0$/, '')}`;
+  };
+  const lines = [];
+  for (const g of GROUPS) {
+    if (!byGroup[g]) continue;
+    lines.push('        ' + byGroup[g].map(fmt).join(', ') + ',');
+  }
+  const wing = A.render.wing ? `\n      wing: '${A.render.wing}',` : '';
+  const out =
+`      family: '${A.render.family}',
+      shape: {
+${lines.join('\n')}
+      },${wing}`;
+  document.getElementById('emit').value = out;
+  return out;
+}
+
+// ---- author wiring ----
+carSel.innerHTML = ALL.map(v =>
+  `<option value="${v.id}">${v.kind === 'barn' ? '◆ ' : ''}${v.label}</option>`).join('');
+famSel.innerHTML = Mesh.FAMILIES.map(f => `<option value="${f}">${f}</option>`).join('');
+
+A.cv = document.getElementById('authorCv');
+A.ctx = A.cv.getContext('2d');
+
+carSel.addEventListener('change', e => loadCar(e.target.value));
+famSel.addEventListener('change', e => { A.render.family = e.target.value; saveEdit(); renderAuthor(); emitShape(); });
+wingSel.addEventListener('change', e => {
+  const v = e.target.value;
+  if (v) A.render.wing = v; else delete A.render.wing;
+  saveEdit(); renderAuthor(); emitShape();
+});
+wheelSel.addEventListener('change', e => { A.wheelStyle = e.target.value; renderAuthor(); });
+
+document.getElementById('emitBtn').addEventListener('click', () => { emitShape(); setStat('emitted'); });
+document.getElementById('copyBtn').addEventListener('click', async () => {
+  const txt = emitShape();
+  try { await navigator.clipboard.writeText(txt); setStat('copied to clipboard'); }
+  catch { document.getElementById('emit').removeAttribute('readonly');
+          document.getElementById('emit').select(); setStat('select + Ctrl-C to copy', true); }
+});
+document.getElementById('revertBtn').addEventListener('click', () => {
+  A.render = clone(A.base);
+  try { localStorage.removeItem(EDIT_KEY(A.car.id)); } catch { /* ignore */ }
+  famSel.value = A.render.family;
+  wingSel.value = A.render.wing || '';
+  buildParams(); renderAuthor(); emitShape();
+  setStat('reverted to data.js');
+});
+
+// drag to rotate
+(() => {
+  let down = false, lastX = 0, lastY = 0;
+  A.cv.addEventListener('pointerdown', e => {
+    down = true; lastX = e.clientX; lastY = e.clientY;
+    A.cv.setPointerCapture(e.pointerId); A.cv.classList.add('dragging');
+  });
+  A.cv.addEventListener('pointermove', e => {
+    if (!down) return;
+    A.yaw += (e.clientX - lastX) * 0.011;
+    A.pitch = Math.max(-0.5, Math.min(0.9, A.pitch + (e.clientY - lastY) * 0.004));
+    lastX = e.clientX; lastY = e.clientY;
+    renderAuthor();
+  });
+  const up = e => {
+    if (!down) return;
+    down = false; A.cv.classList.remove('dragging');
+    try { A.cv.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+  };
+  A.cv.addEventListener('pointerup', up);
+  A.cv.addEventListener('pointercancel', up);
+})();
+addEventListener('resize', () => { if (document.getElementById('v-author').classList.contains('on')) renderAuthor(); });
+
+// reference image — object URL only; nothing is ever written to the repo
+(() => {
+  const file = document.getElementById('refFile');
+  const overlay = document.getElementById('refOverlay');
+  const side = document.getElementById('refSide');
+  const on = document.getElementById('refOn');
+  const op = document.getElementById('refOpacity');
+  let url = null;
+
+  const apply = () => {
+    const has = !!url;
+    overlay.style.display = has && on.checked ? 'block' : 'none';
+    overlay.style.opacity = op.value;
+    side.style.display = has && !on.checked ? 'block' : 'none';
+  };
+  file.addEventListener('change', () => {
+    const f = file.files && file.files[0];
+    if (!f) return;
+    if (url) URL.revokeObjectURL(url);
+    url = URL.createObjectURL(f);
+    overlay.src = url; side.src = url;
+    apply();
+  });
+  on.addEventListener('change', apply);
+  op.addEventListener('input', apply);
+  document.getElementById('refClear').addEventListener('click', () => {
+    if (url) URL.revokeObjectURL(url);
+    url = null;
+    file.value = '';
+    overlay.removeAttribute('src'); side.removeAttribute('src');
+    apply();
+  });
+})();
+
+// ============================================================
+// Gallery tab — the acceptance harness
+// ============================================================
+let galleryOrder = ALL.map((_, i) => i);
+
+function renderGallery() {
+  const host = document.getElementById('gallery');
+  const blind = document.getElementById('blind').checked;
+  const usePaint = document.getElementById('usePaint').checked && !blind;
+  host.innerHTML = '';
+  let tris = 0;
+  for (const idx of galleryOrder) {
+    const v = ALL[idx];
+    const cell = document.createElement('div');
+    cell.className = 'cell';
+    host.appendChild(cell);
+    const ctx = makeCanvas(cell, 212, 128);
+    const mesh = Mesh.build({ ...v.render, wheelStyle: v.wheels[0] });
+    tris += triCount(mesh);
+    Render3D.draw(ctx, mesh, {
+      w: 212, h: 128,
+      paint: usePaint ? v.paint : NEUTRAL,
+      rim: Render3D.rimFor(v.wheels[0]),
+      yaw: -0.62, pitch: 0.20,
+    });
+    const cap = document.createElement('div');
+    cap.className = 'cap' + (blind ? ' hidden' : '');
+    cap.textContent = v.label;
+    cell.appendChild(cap);
+  }
+  setStat(`${ALL.length} vehicles · ${tris} tris total · avg ${Math.round(tris / ALL.length)}`);
+}
+
+document.getElementById('blind').addEventListener('change', renderGallery);
+document.getElementById('usePaint').addEventListener('change', renderGallery);
+document.getElementById('revealBtn').addEventListener('click', () => {
+  document.getElementById('blind').checked = false;
+  renderGallery();
+});
+document.getElementById('shuffleBtn').addEventListener('click', () => {
+  for (let i = galleryOrder.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [galleryOrder[i], galleryOrder[j]] = [galleryOrder[j], galleryOrder[i]];
+  }
+  renderGallery();
+});
+
+// ============================================================
+// Sweep tab
+// ============================================================
+function renderSweeps() {
+  const host = document.getElementById('sweeps');
+  host.innerHTML = '';
+  for (const id of ['911', 'raptor', 'mx5', 'corvette']) {
+    const v = ALL.find(x => x.id === id);
+    if (!v) continue;
+    const lbl = document.createElement('div');
+    lbl.className = 'sweeplbl';
+    lbl.textContent = v.label;
+    host.appendChild(lbl);
+    const row = document.createElement('div');
+    row.className = 'sweeprow';
+    host.appendChild(row);
+    const mesh = Mesh.build({ ...v.render, wheelStyle: v.wheels[0] });
+    for (let i = 0; i < 8; i++) {
+      const ctx = makeCanvas(row, 168, 104);
+      Render3D.draw(ctx, mesh, {
+        w: 168, h: 104, paint: v.paint, rim: Render3D.rimFor(v.wheels[0]),
+        yaw: (i / 8) * Math.PI * 2, pitch: 0.14,
+      });
+    }
+  }
+}
+
+// ============================================================
+// Tabs
+// ============================================================
+const rendered = { gallery: false, sweep: false };
+function show(tab) {
+  document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
+  document.querySelectorAll('.view').forEach(s => s.classList.toggle('on', s.id === 'v-' + tab));
+  if (tab === 'author') renderAuthor();
+  if (tab === 'gallery' && !rendered.gallery) { renderGallery(); rendered.gallery = true; }
+  if (tab === 'sweep' && !rendered.sweep) { renderSweeps(); rendered.sweep = true; }
+}
+document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => show(b.dataset.tab)));
+
+// boot
+loadCar(ALL[0].id);
 </script>
 </body>
 </html>
