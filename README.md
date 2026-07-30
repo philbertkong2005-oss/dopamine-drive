@@ -42,18 +42,27 @@ Output lands in `dist/dopamine-drive.html`. `dist/` is gitignored — rebuild ra
   highlighting per row ($/hp included)
 - **Barn Find of the Day** — one classic per day (deterministic by date), tarp-reveal,
   free claim, midnight countdown
-- 2D layered SVG car art engine (`art.js`) — side profile, per-body-type silhouettes,
-  swappable paint/wheels/wing
+- Low-poly 3D car meshes generated from real published dimensions (`mesh.js` → `render3d.js`),
+  drag-to-rotate in the builder, cached 2D projections everywhere else (`projection.js`).
+  Replaced the old `art.js` SVG engine in v2a
 
 ## Roadmap
 
-- **v2** — discovery feed, more categories, daily auctions; more cars, more angles of car art
+See `ROADMAP.md` for status and `PLAN.md` for rationale.
+
+- **v2a.5** ← next — art rebuild: the mesher never got its separate cabin volume or wheel arches,
+  so cars read as correctly proportioned rather than as *that* car. Authoring tool first, then
+  rebuild, then re-author all 26 cars, then blind acceptance
+- **v2b** — stabilise the daily pick, roster to ~24 cars in two batches, vertical discovery feed,
+  grid⇄feed toggle, daily featured collections
+- **Next** — shareable build cards, the one growth loop on this roadmap
+- **v4** — 3D low-poly PS2-style garage with customizable decorations. Runs *before* v3, because
+  the casino's rewards need somewhere to be displayed
 - **v3** — chips economy → blackjack → slot machine → exclusive wraps/parts/garage decor
   (all optional bonus, never gating core content; slot always pays something)
-- **v4** — 3D low-poly PS2-style garage (Three.js) with customizable decorations
-- **v5** — man-cave / dream-build expansion: houses, furniture, gaming setups, sports gear
-- **Plan Mode** (sibling idea) — same catalog, realistic mode: enter income + savings rate,
-  every build shows "years to afford it" / income needed. Escapism ↔ goal-setting toggle.
+- **Separate products** sharing this catalogue — **Plan Mode** (enter income + savings rate, every
+  build reports years-to-afford; ships as its own build output, with no in-app toggle) and the
+  **man cave** (houses, furniture, gaming setups — own mesher, own build)
 
 ## Notes
 

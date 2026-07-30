@@ -20,11 +20,21 @@ These were settled with Phil deliberately. Treat them as constraints, not prefer
    rewards behind casino wins contradicts the whole no-effort dopamine premise; this is the
    agreed resolution.
 3. **The item schema stays generic.** `data.js` describes a *configurable item* — identity,
-   trims, options, prices. It must not become car-specific, because v5 (man-cave: houses, PCs,
-   furniture) and the sibling "Plan Mode" both reuse it.
+   trims, options, prices. It must not become car-specific, because two separate products —
+   **Plan Mode** and the **man cave** — inherit the whole catalogue from it. Know the limit of
+   what this buys: the commerce layer transfers, the art layer does not, because every `mesh.js`
+   family is a vehicle topology.
 4. **Prices stay CAD**, hand-curated approximations of real MSRPs. Don't scrape dealer sites.
-5. **Original stylised forms only.** Published dimensions are factual and fine to use;
-   manufacturers' 3D models and press renders are not.
+5. **Original stylised forms only, and parametric.** Published dimensions are factual and fine to
+   use; manufacturers' 3D models, press renders, and third-party models from Sketchfab or similar
+   are not. Beyond licensing, parametric geometry is a **requirement of the configurator**, not a
+   size optimisation: paint, wheels, wings and ride height are mesh parameters, and a downloaded
+   model is a static asset with baked materials and welded wheels. See `PLAN.md` for the full
+   rejection note before proposing this again.
+6. **A failed acceptance criterion may trigger its documented fallback. It may never be rewritten
+   as an accepted limitation.** This one is specific, not a platitude: it is exactly how v2a closed
+   with unrecognisable cars and cost a whole extra phase. If a criterion fails, run the fallback or
+   renegotiate the criterion with Phil out loud.
 
 ## Architecture
 
@@ -55,6 +65,10 @@ app.js         state, views, storage, sound, confetti, and the builder Stage3D.
 - **`todaysBarnFind` is still `BARNFINDS[hash % length]`** — appending classics changes which
   car past dates resolve to. Stabilise this *before* growing the roster (v2b step 1).
 - `BARNFINDS` order is **append-only**.
+- **Wheel style is not wired to the mesh.** `Mesh.build` takes `{family, dims, shape, wing, lift}`
+  and `geoKey` is `[id, wing, lift]` ([projection.js:28](projection.js:28)), so the builder's
+  $1,200 wheel upgrade changes the price and nothing visible. Fixed as part of the v2a.5 rebuild;
+  once wheel style is a mesh input it must also enter `geoKey`, per the cache-key invariant above.
 
 ## Commands
 
@@ -64,11 +78,18 @@ powershell -ExecutionPolicy Bypass -File build-single-file.ps1  # -> dist/dopami
 ```
 
 Open `fixtures.html` to inspect all 26 meshes at card and hero size plus a rotation sweep.
-It is the acceptance harness — it caught four real defects that review did not.
+It is the acceptance harness — it caught four real defects that review did not. It is **not**
+bundled (`build-single-file.ps1` inlines only `index.html`, `styles.css` and the five JS files), so
+anything added to it costs zero bundle bytes. v2a.5 turns it into the authoring tool.
 
 - `build-single-file.ps1` **must** read sources with `-Encoding UTF8`. PowerShell 5.1 otherwise
   decodes them as ANSI and mangles every em dash, accent and emoji.
-- Bundle budget is **120 KB**; currently ~105 KB. Exceeding it is a scope conversation.
+- Bundle budget is **160 KB** (raised from 120 on 2026-07-29); currently ~105 KB. Exceeding it is a
+  scope conversation. The build does **no minification at all** — stripping comments, leading
+  indentation and CSS whitespace is the ~12–18 KB recovery held in reserve for when 160 KB is
+  reached. Three.js does not fit even at 160 KB.
+- A catalogue car costs ~1,600 B in `data.js`; a barn-find classic ~680 B (no trims, colours or
+  packages). Use these when estimating roster growth.
 
 ## Deploying
 
@@ -79,16 +100,31 @@ Without it a new link is minted and the existing one goes stale.
 
 ## Status and what's next
 
-**v2a shipped**: cars are low-poly 3D meshes built from real dimensions across six topology
+**v2a shipped, then reopened.** Cars are low-poly meshes from real dimensions across six topology
 families; the builder rotates live, every other surface uses cached projections; `art.js` retired.
+But judging it in the live artifact on 2026-07-29, Phil found the cars neither good-looking nor
+recognisable — which is acceptance criterion (b) failing. The v2a closure had recorded that failure
+as an "accepted limitation" instead of invoking the documented fallback. See guardrail 6.
 
-**v2b, in order**: stabilise the daily pick → roster to ~24 cars (Claude proposes, Phil vetoes)
-→ vertical feed → grid⇄feed toggle over one shared catalogue and filter state → daily featured
-collections. Then v3 casino, v4 3D garage, v5 man cave, and Plan Mode as a sibling.
+**v2a.5 — art rebuild ← next.** The mesher was never built to its own spec: PLAN step 3 called for
+"cabin as a second volume" and glass is instead a material flag on the same hull, there are no wheel
+arches (the tuck runs the whole length), the cross-section has only 4 points, and the nose is one
+flat polygon. Order: **authoring tool into `fixtures.html` first** (26 cars × ~30 params = 780
+hand-authored numbers) → rebuild `mesh.js` → depth buffer if measurement demands it → rewrite
+`shape` for all 26 → **blind acceptance** (labels hidden, Phil names each car; any miss is a
+mandatory override, under 20/26 means the rebuild failed).
 
-Accepted art limits: low sports coupes still resemble each other, cars read as correctly
-proportioned rather than as *that* car, and nose-on views are featureless. Named fallback is
-per-car profile overrides.
+**v2b, in order**: stabilise the daily pick → *[v2a.5 lands here]* → roster batch 1 of 4 cars chosen
+to prove new topology (Defender 110 `suv`, RS6 Avant `wagon`, ID. Buzz `van`, 296 GTB `exotic`
+extreme) → batch 2 of 8 → vertical feed → grid⇄feed toggle → daily collections. Three ship gates,
+on the art rebuild and the feed only.
 
-`PLAN.md` and `PLAN-REVIEW-LOG.md` hold the full grilled + Codex-reviewed rationale for v2 —
-read them before changing v2 direction. `ROADMAP.md` tracks status.
+**Then**: shareable build cards (the only mechanism that brings new people in) → v4 3D garage →
+v3 casino. The casino follows the garage because its rewards need somewhere to be displayed.
+
+**Separate products, not versions of this one**: Plan Mode (same source tree, a second build output
+`plan.html`, **no in-app toggle**) and the man cave (own mesher, own build). Both share `data.js`.
+
+`PLAN.md` and `PLAN-REVIEW-LOG.md` hold the full grilled + Codex-reviewed rationale for v2, plus the
+v2a.5 defect table and the 2026-07-29 direction decisions — read them before changing v2 direction.
+`ROADMAP.md` tracks status.
